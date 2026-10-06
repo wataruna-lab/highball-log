@@ -375,7 +375,8 @@
     </style>
 </head>
 <body>
-<header>
+
+    <header>
         <h1>Highball Lab.</h1>
     </header>
 
@@ -648,8 +649,7 @@
                 closeModal();
             }
         });
-
-        // --- Helper for creating log item HTML ---
+    // --- Helper for creating log item HTML ---
         function createLogElement(log) {
             const d = new Date(log.timestamp);
             const timeStr = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
