@@ -203,7 +203,7 @@
             border-radius: 8px;
             font-size: 0.9rem;
             transition: all 0.3s ease;
-            display: none; /* Default hidden */
+            display: none;
         }
 
         /* List Items */
@@ -256,6 +256,27 @@
         
         .btn-delete:hover {
             color: var(--danger-color);
+        }
+        
+        /* History Headers */
+        .history-date-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 4px 8px;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 12px;
+        }
+        
+        .history-date {
+            font-weight: bold;
+            font-size: 1.1rem;
+            color: var(--text-main);
+        }
+        
+        .history-total {
+            font-weight: bold;
+            font-size: 1rem;
         }
 
         /* Bottom Navigation */
@@ -404,7 +425,7 @@
                     <i class="fa-solid fa-martini-glass-citrus"></i> Craft
                 </button>
             </div>
-
+            
             <!-- Free Entry Card -->
             <div class="card">
                 <div class="card-title">
@@ -444,9 +465,9 @@
                 <div class="card-title">
                     <i class="fa-solid fa-calendar-days"></i> History (Past 30 Days)
                 </div>
-                <ul class="log-list" id="history-list">
-                    <!-- History items will be injected here -->
-                </ul>
+                <div id="history-container">
+                    <!-- History items (Grouped by date) will be injected here -->
+                </div>
             </div>
         </div>
 
@@ -480,7 +501,6 @@
         let logs = [];
         let itemToDelete = null;
 
-        // Load logs from LocalStorage on startup
         function loadLogs() {
             const saved = localStorage.getItem('highballLogs');
             if (saved) {
@@ -490,16 +510,12 @@
             updateUI();
         }
 
-        // Save logs to LocalStorage
         function saveLogs() {
             localStorage.setItem('highballLogs', JSON.stringify(logs));
             updateUI();
         }
 
         // --- Logic: 30-Hour Clock & 30-Day Retention ---
-        
-        // Returns the "Logical Date" string (YYYY-MM-DD)
-        // If current time is before 06:00, it counts as the previous day.
         function getLogicalDateStr(dateObj = new Date()) {
             const d = new Date(dateObj);
             if (d.getHours() < 6) {
@@ -511,7 +527,6 @@
             return `${year}-${month}-${day}`;
         }
 
-        // Keep only logs from the last 30 logical days
         function cleanOldLogs() {
             const todayLogical = new Date(getLogicalDateStr());
             const thirtyDaysAgo = new Date(todayLogical);
@@ -521,10 +536,8 @@
                 const logDate = new Date(getLogicalDateStr(new Date(log.timestamp)));
                 return logDate >= thirtyDaysAgo;
             });
-            // We don't call saveLogs() here directly to avoid loops during load
         }
 
-        // Calculate Pure Alcohol (g)
         function calcAlcoholGrams(vol, abv) {
             return (vol * (abv / 100) * 0.8).toFixed(1);
         }
@@ -549,29 +562,24 @@
             const wVol = parseFloat(sliders.wVol.value);
             const sVol = parseFloat(sliders.sVol.value);
 
-            // Update label displays
             displays.wAbv.textContent = wAbv;
             displays.wVol.textContent = wVol;
             displays.sVol.textContent = sVol;
 
-            // Calculations
             const totalVol = wVol + sVol;
             const finalAbv = ((wVol * wAbv) / totalVol).toFixed(1);
             const pureAlcohol = calcAlcoholGrams(totalVol, finalAbv);
 
-            // Update result displays
             displays.resultAbv.innerHTML = `${finalAbv}<span>%</span>`;
             displays.resultTotal.textContent = totalVol;
             displays.resultGrams.textContent = pureAlcohol;
         }
 
-        // Add event listeners to sliders
         Object.values(sliders).forEach(slider => {
             slider.addEventListener('input', calculateHighball);
         });
 
         // --- Actions ---
-
         function craftHighball() {
             const wVol = parseFloat(sliders.wVol.value);
             const sVol = parseFloat(sliders.sVol.value);
@@ -604,7 +612,6 @@
             }
 
             const grams = parseFloat(calcAlcoholGrams(vol, abv));
-
             const newLog = {
                 id: Date.now().toString(),
                 timestamp: new Date().toISOString(),
@@ -618,14 +625,12 @@
             logs.push(newLog);
             saveLogs();
             
-            // Clear inputs
             document.getElementById('free-name').value = '';
             document.getElementById('free-abv').value = '';
             document.getElementById('free-vol').value = '';
         }
         
         // --- Delete Modal Logic ---
-        
         function requestDelete(id) {
             itemToDelete = id;
             document.getElementById('delete-modal').style.display = 'flex';
@@ -644,132 +649,142 @@
             }
         });
 
-        // --- UI Updating ---
+        // --- Helper for creating log item HTML ---
+        function createLogElement(log) {
+            const d = new Date(log.timestamp);
+            const timeStr = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+            
+            const li = document.createElement('li');
+            li.className = 'log-item';
+            li.innerHTML = `
+                <div class="log-info">
+                    <h3>${log.name}</h3>
+                    <p>${timeStr} • ${log.type === 'craft' ? '自家製' : '手動登録'} • ${log.abv}% • ${log.vol}ml</p>
+                </div>
+                <div class="log-right">
+                    <div class="log-amount">${log.grams}g</div>
+                    <button class="btn-delete" onclick="requestDelete('${log.id}')"><i class="fa-solid fa-trash-can"></i></button>
+                </div>
+            `;
+            return li;
+        }
 
+        // --- UI Updating ---
         function updateUI() {
             const todayLogicalStr = getLogicalDateStr();
             const todayList = document.getElementById('today-list');
-            const historyList = document.getElementById('history-list');
+            const historyContainer = document.getElementById('history-container');
             
             todayList.innerHTML = '';
-            historyList.innerHTML = '';
+            historyContainer.innerHTML = '';
             
-            let todayTotalGrams = 0;
-
-            // Sort logs newest first
+            // Group logs by Logical Date
+            const groupedLogs = {};
             const sortedLogs = [...logs].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-
-            sortedLogs.forEach(log => {
-                const logLogicalStr = getLogicalDateStr(new Date(log.timestamp));
-                const d = new Date(log.timestamp);
-                const timeStr = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-                const dateStr = `${d.getMonth() + 1}/${d.getDate()}`;
-
-                const li = document.createElement('li');
-                li.className = 'log-item';
-                li.innerHTML = `
-                    <div class="log-info">
-                        <h3>${log.name}</h3>
-                        <p>${log.type === 'craft' ? '自家製' : '手動登録'} • ${log.abv}% • ${log.vol}ml</p>
-                    </div>
-                    <div class="log-right">
-                        <div class="log-amount">${log.grams}g</div>
-                        <button class="btn-delete" onclick="requestDelete('${log.id}')"><i class="fa-solid fa-trash-can"></i></button>
-                    </div>
-                `;
-
-                if (logLogicalStr === todayLogicalStr) {
-                    // Add to Today
-                    todayTotalGrams += log.grams;
-                    
-                    // Duplicate element for today list since DOM nodes can only exist in one parent
-                    const liToday = li.cloneNode(true);
-                    // Re-attach event listener for the cloned button
-                    liToday.querySelector('.btn-delete').onclick = () => requestDelete(log.id);
-                    
-                    // Prepend time to info
-                    liToday.querySelector('.log-info p').innerText = `${timeStr} • ` + liToday.querySelector('.log-info p').innerText;
-                    todayList.appendChild(liToday);
-                }
-                
-                // Add to History with Date
-                li.querySelector('.log-info p').innerText = `${dateStr} ${timeStr} • ` + li.querySelector('.log-info p').innerText;
-                historyList.appendChild(li);
-            });
             
-            // Check if lists are empty
-            if(todayList.innerHTML === '') {
+            sortedLogs.forEach(log => {
+                const logicalStr = getLogicalDateStr(new Date(log.timestamp));
+                if (!groupedLogs[logicalStr]) {
+                    groupedLogs[logicalStr] = { totalGrams: 0, items: [] };
+                }
+                groupedLogs[logicalStr].totalGrams += log.grams;
+                groupedLogs[logicalStr].items.push(log);
+            });
+
+            // 1. Render Today's List
+            let todayTotalGrams = 0;
+            if (groupedLogs[todayLogicalStr]) {
+                todayTotalGrams = groupedLogs[todayLogicalStr].totalGrams;
+                groupedLogs[todayLogicalStr].items.forEach(log => {
+                    todayList.appendChild(createLogElement(log));
+                });
+            }
+            if (todayList.innerHTML === '') {
                 todayList.innerHTML = '<li class="log-item" style="justify-content:center; color: var(--text-sub);">まだ記録がありません</li>';
             }
-            if(historyList.innerHTML === '') {
-                historyList.innerHTML = '<li class="log-item" style="justify-content:center; color: var(--text-sub);">まだ記録がありません</li>';
-            }
-
             updateIntakeMeter(todayTotalGrams);
+
+            // 2. Render History List
+            const sortedDates = Object.keys(groupedLogs).sort((a, b) => new Date(b) - new Date(a));
+            
+            if (sortedDates.length === 0) {
+                historyContainer.innerHTML = '<ul class="log-list"><li class="log-item" style="justify-content:center; color: var(--text-sub);">まだ記録がありません</li></ul>';
+            } else {
+                sortedDates.forEach(dateStr => {
+                    const group = groupedLogs[dateStr];
+                    const [yyyy, mm, dd] = dateStr.split('-');
+                    const displayDate = `${parseInt(mm)}/${parseInt(dd)}`;
+                    
+                    let colorVar = 'var(--text-main)';
+                    if (group.totalGrams >= 40) colorVar = 'var(--danger-color)';
+                    else if (group.totalGrams >= 20) colorVar = 'var(--warning-color)';
+
+                    // Header
+                    const header = document.createElement('div');
+                    header.className = 'history-date-header';
+                    header.innerHTML = `
+                        <span class="history-date">${displayDate}</span>
+                        <span class="history-total" style="color: ${colorVar}">計 ${group.totalGrams.toFixed(1)}g</span>
+                    `;
+                    historyContainer.appendChild(header);
+
+                    // Items for this date
+                    const ul = document.createElement('ul');
+                    ul.className = 'log-list';
+                    ul.style.marginTop = '0';
+                    group.items.forEach(log => {
+                        ul.appendChild(createLogElement(log));
+                    });
+                    historyContainer.appendChild(ul);
+                });
+            }
         }
 
         function updateIntakeMeter(grams) {
             const display = document.getElementById('today-total-g');
             const msgBox = document.getElementById('intake-message');
             
-            // Fix floating point errors
             grams = parseFloat(grams.toFixed(1));
             display.innerHTML = `${grams}<span>g</span>`;
             
             msgBox.style.display = 'block';
 
             if (grams >= 40) {
-                // Danger (>= 40g)
                 display.style.color = 'var(--danger-color)';
                 msgBox.style.backgroundColor = 'rgba(255, 82, 82, 0.1)';
                 msgBox.style.border = '1px solid var(--danger-color)';
                 msgBox.style.color = 'var(--danger-color)';
                 msgBox.innerHTML = '🛑 限界ライン（40g）到達！<br>本日のCraftはここまで。あとはゆっくり休みましょう。';
             } else if (grams >= 20) {
-                // Warning (20g - 39.9g)
                 display.style.color = 'var(--warning-color)';
                 msgBox.style.backgroundColor = 'rgba(255, 179, 0, 0.1)';
                 msgBox.style.border = '1px solid var(--warning-color)';
                 msgBox.style.color = 'var(--warning-color)';
                 msgBox.innerHTML = '⚠️ 適量（20g）をオーバーしました。<br>チェイサーを挟んで、そろそろスローペースに。';
             } else {
-                // Safe (< 20g)
                 display.style.color = 'var(--text-main)';
                 msgBox.style.backgroundColor = 'transparent';
                 msgBox.style.border = '1px solid var(--border-color)';
                 msgBox.style.color = 'var(--text-sub)';
                 
-                if (grams === 0) {
-                     msgBox.style.display = 'none';
-                } else {
-                     msgBox.innerHTML = '🥃 今日も良いお酒を。';
-                }
+                if (grams === 0) msgBox.style.display = 'none';
+                else msgBox.innerHTML = '🥃 今日も良いお酒を。';
             }
         }
 
         // --- Navigation ---
         function switchTab(tabId) {
-            // Update nav items
-            document.querySelectorAll('.nav-item').forEach(item => {
-                item.classList.remove('active');
-            });
+            document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
             event.currentTarget.classList.add('active');
 
-            // Update tab content
-            document.querySelectorAll('.tab-content').forEach(tab => {
-                tab.classList.remove('active');
-            });
+            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
             document.getElementById(`tab-${tabId}`).classList.add('active');
         }
 
         // Initialize
         calculateHighball();
         loadLogs();
-        
-        // Setup daily refresh check (in case user leaves app open across 06:00)
-        setInterval(() => {
-            updateUI(); // re-evaluates logical date and updates lists/meter
-        }, 60000); // Check every minute
+        setInterval(updateUI, 60000); // Daily refresh check
     </script>
 </body>
 </html>
