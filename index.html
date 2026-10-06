@@ -557,7 +557,16 @@
             resultTotal: document.getElementById('display-total'),
             resultGrams: document.getElementById('display-alcohol-g')
         };
-
+// ↓↓↓これをまるごと追加（保存された数値をスライダーにセットする関数）↓↓↓
+        function loadSliderState() {
+            const saved = localStorage.getItem('highballSliders');
+            if (saved) {
+                const state = JSON.parse(saved);
+                if (state.wAbv) sliders.wAbv.value = state.wAbv;
+                if (state.wVol) sliders.wVol.value = state.wVol;
+                if (state.sVol) sliders.sVol.value = state.sVol;
+            }
+        }
         function calculateHighball() {
             const wAbv = parseFloat(sliders.wAbv.value);
             const wVol = parseFloat(sliders.wVol.value);
@@ -574,6 +583,9 @@
             displays.resultAbv.innerHTML = `${finalAbv}<span>%</span>`;
             displays.resultTotal.textContent = totalVol;
             displays.resultGrams.textContent = pureAlcohol;
+
+            // ↓↓↓ここを追加（数値をLocal Storageに保存）↓↓↓
+            localStorage.setItem('highballSliders', JSON.stringify({ wAbv, wVol, sVol }));
         }
 
         Object.values(sliders).forEach(slider => {
@@ -782,6 +794,7 @@
         }
 
         // Initialize
+        loadSliderState(); // ←これを追加（計算より前に読み込む）
         calculateHighball();
         loadLogs();
         setInterval(updateUI, 60000); // Daily refresh check
